@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smoke-worker"
+version = "0.1.0"
+description = "Black Smoke Monitor worker process (capture and inference arrive in later steps)"
+requires-python = ">=3.11,<3.13"
+dependencies = ["smoke-shared"]
+
+# Inference stack (torch, transformers, opencv) is intentionally NOT installed
+# in Step 01; it is added as an extra when detection is implemented.
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.setuptools.packages.find]
+include = ["smoke_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

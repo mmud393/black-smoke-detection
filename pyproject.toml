@@ -1,0 +1,12 @@
+# Root config: shared tooling only. Each service has its own pyproject.toml
+# (shared/, backend/, worker/). Install everything with `make install`.
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = [".venv", "frontend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "PLW"]
+ignore = ["S101"]
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S603", "S607"]

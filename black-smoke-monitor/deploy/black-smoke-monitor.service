@@ -1,0 +1,23 @@
+[Unit]
+Description=Black smoke monitor (Dahua RTSP -> email)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=smokemon
+Group=smokemon
+WorkingDirectory=/opt/black-smoke-monitor
+EnvironmentFile=/opt/black-smoke-monitor/.env
+ExecStart=/opt/black-smoke-monitor/.venv/bin/python -m smoke_monitor
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/black-smoke-monitor/data
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
