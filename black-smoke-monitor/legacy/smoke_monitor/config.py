@@ -30,13 +30,9 @@ class Config:
     connect_timeout: float
     stall_timeout: float
 
-    model_id: str
-    model_local_dir: Path
-    device: str
     inference_fps: float
-    box_threshold: float
-    text_threshold: float
-    detection_prompt: str
+    detection_roi: tuple[tuple[float, float], ...]
+    min_blob_fraction: float
     dark_luminance: int
     min_dark_fraction: float
     min_motion_fraction: float
@@ -44,6 +40,11 @@ class Config:
     min_span_seconds: float
     clear_seconds: float
     max_frame_age: float
+
+    anthropic_api_key: str
+    ai_model: str
+    ai_timeout: float
+    ai_recheck_seconds: float
 
     smtp_host: str
     smtp_port: int
@@ -77,7 +78,8 @@ class Config:
 
     @property
     def secrets(self) -> list[str]:
-        return [s for s in (self.camera_password, self.smtp_password, self.camera_username) if s]
+        return [s for s in (self.camera_password, self.smtp_password, self.camera_username,
+                            self.anthropic_api_key) if s]
 
 
 def build_rtsp_url(ip: str, port: int, user: str, password: str, channel: int,
@@ -103,8 +105,25 @@ def _num(env: dict, key: str, kind, default, errors: list[str], lo=None, hi=None
     return val
 
 
+def parse_roi(raw: str, errors: list[str]) -> tuple[tuple[float, float], ...]:
+    """'x,y;x,y;x,y' with 0-1 fractions of the frame; empty = whole frame."""
+    if not raw.strip():
+        return ()
+    try:
+        pts = tuple((float(a), float(b)) for a, b in
+                    (pair.split(",") for pair in raw.split(";") if pair.strip()))
+    except ValueError:
+        errors.append("DETECTION_ROI: use 'x,y;x,y;x,y' with numbers between 0 and 1")
+        return ()
+    if len(pts) < 3 or any(not (0 <= v <= 1) for pt in pts for v in pt):
+        errors.append("DETECTION_ROI: needs at least 3 points, each value between 0 and 1")
+        return ()
+    return pts
+
+
 def load_config(env_file: str | os.PathLike | None = ".env", environ: dict | None = None,
-                check_placeholders: bool = True, require_smtp: bool = True) -> Config:
+                check_placeholders: bool = True, require_smtp: bool = True,
+                require_ai: bool = True) -> Config:
     """Load from .env file overlaid by process environment (or an explicit dict for tests)."""
     env: dict = {}
     if environ is None:
@@ -142,9 +161,8 @@ def load_config(env_file: str | os.PathLike | None = ".env", environ: dict | Non
     security = opt("SMTP_SECURITY", "starttls").lower()
     if security not in ("starttls", "ssl"):
         errors.append("SMTP_SECURITY: must be starttls or ssl")
-    device = opt("DEVICE", "cpu").lower()
-    if device not in ("cpu", "cuda"):
-        errors.append("DEVICE: must be cpu or cuda")
+    api_key = req("ANTHROPIC_API_KEY") if require_ai else opt("ANTHROPIC_API_KEY")
+    roi = parse_roi(opt("DETECTION_ROI"), errors)
 
     if require_smtp:
         smtp_host, smtp_user, smtp_pw = req("SMTP_HOST"), req("SMTP_USERNAME"), req("SMTP_PASSWORD")
@@ -174,14 +192,9 @@ def load_config(env_file: str | os.PathLike | None = ".env", environ: dict | Non
         camera_rtsp_url=override, rtsp_transport=transport,
         connect_timeout=_num(env, "CAMERA_CONNECT_TIMEOUT_SECONDS", float, 10.0, errors, 1),
         stall_timeout=_num(env, "CAMERA_STALL_TIMEOUT_SECONDS", float, 10.0, errors, 1),
-        model_id=opt("MODEL_ID", "IDEA-Research/grounding-dino-tiny"),
-        model_local_dir=Path(opt("MODEL_LOCAL_DIR", "./models/grounding-dino-tiny")),
-        device=device,
-        inference_fps=_num(env, "INFERENCE_FPS", float, 1.0, errors, 0.05, 30),
-        box_threshold=_num(env, "MODEL_BOX_THRESHOLD", float, 0.30, errors, 0, 1),
-        text_threshold=_num(env, "MODEL_TEXT_THRESHOLD", float, 0.25, errors, 0, 1),
-        detection_prompt=opt("DETECTION_PROMPT",
-                             "thick black smoke plume. dark smoke cloud. smoke rising from industrial equipment."),
+        inference_fps=_num(env, "INFERENCE_FPS", float, 2.0, errors, 0.05, 30),
+        detection_roi=roi,
+        min_blob_fraction=_num(env, "MIN_BLOB_AREA_FRACTION", float, 0.002, errors, 0, 1),
         dark_luminance=_num(env, "DARK_PIXEL_LUMINANCE_THRESHOLD", int, 90, errors, 1, 255),
         min_dark_fraction=_num(env, "MIN_DARK_PIXEL_FRACTION", float, 0.40, errors, 0, 1),
         min_motion_fraction=_num(env, "MIN_MOTION_FRACTION", float, 0.03, errors, 0, 1),
@@ -189,6 +202,10 @@ def load_config(env_file: str | os.PathLike | None = ".env", environ: dict | Non
         min_span_seconds=_num(env, "MIN_DETECTION_SPAN_SECONDS", float, 3.0, errors, 0),
         clear_seconds=_num(env, "EVENT_CLEAR_SECONDS", float, 20.0, errors, 1),
         max_frame_age=_num(env, "MAX_FRAME_AGE_SECONDS", float, 5.0, errors, 0.5),
+        anthropic_api_key=api_key,
+        ai_model=opt("AI_MODEL", "claude-opus-5-5"),
+        ai_timeout=_num(env, "AI_TIMEOUT_SECONDS", float, 30.0, errors, 1),
+        ai_recheck_seconds=_num(env, "AI_RECHECK_SECONDS", float, 120.0, errors, 0),
         smtp_host=smtp_host, smtp_port=_num(env, "SMTP_PORT", int, 587, errors, 1, 65535),
         smtp_security=security, smtp_username=smtp_user, smtp_password=smtp_pw,
         smtp_from=smtp_from, alert_to=recipients,

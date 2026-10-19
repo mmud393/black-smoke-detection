@@ -3,6 +3,7 @@ import json
 
 import numpy as np
 
+from smoke_monitor.ai_confirm import AIVerdict
 from smoke_monitor.detector import StubDetector
 from smoke_monitor.monitor import Monitor
 
@@ -18,6 +19,15 @@ class NoEmail:
     def stop(self): ...
 
 
+class FakeAI:
+    def __init__(self, answer="yes"):
+        self.answer, self.calls = answer, 0
+
+    def confirm(self, path):
+        self.calls += 1
+        return AIVerdict(self.answer == "yes", self.answer, "test")
+
+
 def frames(n):
     """Dark box whose left edge alternates so it 'moves' between sampled frames."""
     for i in range(n):
@@ -28,9 +38,9 @@ def frames(n):
         yield img
 
 
-def make(cfg):
+def make(cfg, ai=None):
     det = StubDetector(box=(80, 60, 240, 180))
-    return Monitor(cfg, det, reader=object(), email_worker=NoEmail()), det
+    return Monitor(cfg, det, ai or FakeAI(), reader=object(), email_worker=NoEmail()), det
 
 
 def test_one_alert_per_episode_and_screenshot(cfg):
@@ -69,3 +79,22 @@ def test_restart_during_active_episode_does_not_realert(cfg):
     mon2, _ = make(cfg)  # same data dir: state says active
     assert mon2.tracker.state == "ALERTED"
     assert not any(mon2.process_frame(img, float(i)) for i, img in enumerate(frames(10)))
+
+
+def test_no_email_when_ai_declines_and_no_repeat_asks(cfg):
+    ai = FakeAI("no")
+    mon, _ = make(cfg, ai)
+    shots = [s for i, img in enumerate(frames(40)) if (s := mon.process_frame(img, float(i)))]
+    assert not shots and mon.outbox.pending_count() == 0 and mon.emailer.notified == 0
+    assert not list(mon.shots_dir.glob("*.jpg"))      # rejected evidence is not kept
+    assert ai.calls == 1                              # recheck window stops repeated API calls
+    # after the recheck window the scene may be asked about again
+    again = [s for i, img in enumerate(frames(10)) if (s := mon.process_frame(img, 500.0 + i))]
+    assert not again and ai.calls == 2
+
+
+def test_ai_unsure_or_error_never_sends(cfg):
+    for answer in ("unsure", "error"):
+        mon, _ = make(cfg, FakeAI(answer))
+        assert not any(mon.process_frame(img, float(i)) for i, img in enumerate(frames(10)))
+        assert mon.outbox.pending_count() == 0

@@ -4,16 +4,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+from dotenv import dotenv_values
+import io
 
-from smoke_monitor.config import load_config
+import config
 
-BASE_ENV = {
-    "CAMERA_IP": "192.168.1.100", "CAMERA_USERNAME": "adm", "CAMERA_PASSWORD": "p@ss:w/rd",
-    "SMTP_HOST": "smtp.example.org", "SMTP_USERNAME": "u@example.org", "SMTP_PASSWORD": "smtpsecret",
-    "SMTP_FROM": "u@example.org", "ALERT_EMAIL_TO": "boss@example.org", "TIMEZONE": "Asia/Karachi",
-}
+BASE = {k: v for k, v in dotenv_values(stream=io.StringIO(config.ENV_TEMPLATE)).items()}
+
+
+def make_env(tmp_path, **over):
+    env = dict(BASE, SCREENSHOT_DIR=str(tmp_path / "shots"), MODEL_PATH=str(tmp_path / "m.onnx"))
+    env.update({k: str(v) for k, v in over.items()})
+    return env
 
 
 @pytest.fixture
-def cfg(tmp_path):
-    return load_config(environ={**BASE_ENV, "DATA_DIR": str(tmp_path)})
+def settings(tmp_path):
+    return config.load_settings(make_env(tmp_path))
+
+
+@pytest.fixture
+def mk(tmp_path):
+    return lambda **over: config.load_settings(make_env(tmp_path, **over))

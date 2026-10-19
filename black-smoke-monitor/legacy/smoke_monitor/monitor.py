@@ -20,9 +20,9 @@ RETENTION_EVERY = 3600.0
 
 
 class Monitor:
-    def __init__(self, cfg, detector, reader: CameraReader | None = None,
+    def __init__(self, cfg, detector, confirmer, reader: CameraReader | None = None,
                  email_worker: EmailWorker | None = None):
-        self.cfg, self.detector = cfg, detector
+        self.cfg, self.detector, self.confirmer = cfg, detector, confirmer
         data = cfg.data_dir
         self.shots_dir = data / "screenshots"
         self.state = AlertState(data / "state")
@@ -41,6 +41,8 @@ class Monitor:
         self.last_inference_s = 0.0
         self.last_inference_at: float | None = None
         self.degraded = False
+        self._ai_block_until = 0.0
+        self.ai_calls = 0
 
     # one sampling step, separated for testing / replay
     def process_frame(self, image, now: float) -> str | None:
@@ -61,11 +63,24 @@ class Monitor:
             if self.tracker.state == "CLEAR" and (s := self.state.load()) and s.get("active"):
                 self.state.save(s["event_id"], False)
             return None
-        return self._raise_alert(image, best.box)
+        if now < self._ai_block_until:  # AI recently declined this scene: don't re-ask yet
+            self.tracker.reject()
+            return None
+        return self._raise_alert(image, best.box, now)
 
-    def _raise_alert(self, image, box) -> str:
+    def _raise_alert(self, image, box, now: float) -> str | None:
+        """Episode passed local checks: Claude must confirm before anything is emailed."""
         when = datetime.now(timezone.utc)
         path = save_screenshot(image, box, self.shots_dir, self.cfg.timezone, self.cfg.camera_name, when)
+        self.ai_calls += 1
+        verdict = self.confirmer.confirm(path)
+        if not verdict.confirmed:
+            log.info("AI did not confirm black smoke (%s: %s); no email", verdict.verdict, verdict.reason)
+            path.unlink(missing_ok=True)  # evidence is kept for confirmed events only
+            self._ai_block_until = now + self.cfg.ai_recheck_seconds
+            self.tracker.reject()
+            return None
+        log.info("AI confirmed black smoke: %s", verdict.reason)
         event_id = path.stem.removeprefix("black_smoke_")
         self.outbox.enqueue(event_id, path, when)
         self.state.save(event_id, True)
@@ -104,9 +119,9 @@ class Monitor:
                 if now - last_health >= HEALTH_EVERY:
                     last_health = now
                     fa = self.reader.frame_age()
-                    log.info("health camera=%s frame_age=%s inference_s=%.2f state=%s pending_emails=%d%s",
+                    log.info("health camera=%s frame_age=%s inference_s=%.2f state=%s pending_emails=%d ai_calls=%d%s",
                              self.reader.status, "n/a" if fa is None else f"{fa:.1f}s",
-                             self.last_inference_s, self.tracker.state, self.outbox.pending_count(),
+                             self.last_inference_s, self.tracker.state, self.outbox.pending_count(), self.ai_calls,
                              " DEGRADED" if self.degraded else "")
                 if now - last_retention >= RETENTION_EVERY:
                     last_retention = now

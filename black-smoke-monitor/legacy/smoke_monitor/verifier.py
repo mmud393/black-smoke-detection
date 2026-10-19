@@ -127,6 +127,10 @@ class EpisodeTracker:
         """After a restart during an active episode: don't re-alert while it persists."""
         self.state, self.last_seen = ALERTED, now
 
+    def reject(self) -> None:
+        """The AI declined to confirm: drop back to CLEAR so no alert state lingers."""
+        self.state, self._obs, self.alert_box = CLEAR, [], None
+
     def update(self, now: float, box) -> bool:
         """box = verified dark-smoke box for this sample, or None. Returns True to alert."""
         if self.state in (ALERTED, CLEARING):

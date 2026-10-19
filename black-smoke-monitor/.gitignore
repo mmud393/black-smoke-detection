@@ -3,8 +3,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-models/*
-!models/.gitkeep
-data/*/*
-!data/*/.gitkeep
+.ruff_cache/
+screenshots/
+models/
 *.log
+legacy/env.old

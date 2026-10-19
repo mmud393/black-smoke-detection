@@ -2,13 +2,10 @@
 
 | Component | License | Note |
 |-----------|---------|------|
-| IDEA-Research/grounding-dino-tiny | Apache-2.0 (per model card) | Revision is written to `models/grounding-dino-tiny/REVISION.txt` by `scripts/download_model.py`. Re-verify license for that exact revision before packaging. |
-| PyTorch | BSD-3-Clause | |
-| Transformers / huggingface_hub / safetensors | Apache-2.0 | |
-| OpenCV (opencv-python-headless) | Apache-2.0 (bundles FFmpeg, LGPL) | |
+| Anthropic Python SDK (`anthropic`) | MIT | Calls the Claude API (paid, needs `ANTHROPIC_API_KEY`); use is governed by Anthropic's terms. No model weights are used locally. |
+| OpenCV (opencv-python-headless) | Apache-2.0 (bundles FFmpeg, LGPL) | Motion detection and capture. |
 | NumPy | BSD-3-Clause | |
-| Pillow | HPND | |
 | python-dotenv | BSD-3-Clause | |
 | pytest | MIT | |
 
-Model licensing does not establish detection quality. No Ultralytics/AGPL code or weights are used.
+No AI model is trained or run locally. No Ultralytics/AGPL code or weights are used.
